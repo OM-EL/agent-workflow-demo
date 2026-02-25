@@ -1,0 +1,143 @@
+# ──────────────────────────────────────────────────────────────
+#  Docker Build & Trivy Image Scan
+# ──────────────────────────────────────────────────────────────
+#  This workflow builds the Docker image on a regular runner
+#  (where Docker daemon IS available), scans the real image
+#  with Trivy, and uploads the scan results as an artifact.
+#
+#  Then it triggers the agentic CVE Scanner workflow, which
+#  downloads the scan results and handles: enrichment, fixing,
+#  rebuild verification, and reporting (issue + PR).
+#
+#  Why two workflows?
+#  - gh-aw agent runners are sandboxed (no Docker daemon)
+#  - Real image scanning requires building the image first
+#  - This workflow provides the "eyes" (scan), the agent
+#    provides the "brain" (analysis, fix, report)
+# ──────────────────────────────────────────────────────────────
+
+name: Docker Build & Scan
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "code-example/**"
+
+permissions:
+  contents: read
+  actions: write    # needed to trigger downstream workflow
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Build the Docker image ──────────────────────────────
+      - name: Build Docker image
+        run: |
+          echo "🐳 Building Docker image..."
+          docker build -t app:scan . 2>&1
+          echo ""
+          echo "✅ Image built successfully"
+          echo ""
+          echo "📋 Image metadata:"
+          docker inspect app:scan --format 'ID: {{.Id}}'
+          docker inspect app:scan --format 'Size: {{.Size}} bytes'
+          docker inspect app:scan --format 'Created: {{.Created}}'
+
+      # ── Save image as tarball ───────────────────────────────
+      - name: Save image tarball
+        run: |
+          echo "💾 Saving image as tarball..."
+          docker save app:scan -o /tmp/app-scan.tar
+          ls -lh /tmp/app-scan.tar
+          echo "✅ Tarball saved: $(du -h /tmp/app-scan.tar | cut -f1)"
+
+      # ── Install Trivy ──────────────────────────────────────
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+          trivy --version
+
+      # ── Scan the REAL image (OS + Python) ──────────────────
+      - name: Trivy image scan (JSON)
+        run: |
+          echo "🔍 Scanning Docker image app:scan with Trivy..."
+          echo "   This covers BOTH OS packages (Debian) AND Python dependencies."
+          echo ""
+          trivy image \
+            --format json \
+            --output /tmp/trivy-results.json \
+            --severity CRITICAL,HIGH,MEDIUM,LOW \
+            app:scan 2>&1
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  📊 Scan complete. Results saved to trivy-results.json"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Trivy image scan (table)
+        run: |
+          echo ""
+          echo "📊 Human-readable summary:"
+          echo ""
+          trivy image --severity CRITICAL,HIGH,MEDIUM,LOW app:scan 2>&1
+
+      # ── Quick stats for the workflow summary ────────────────
+      - name: Scan statistics
+        run: |
+          echo "## 🔒 Trivy Image Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          TOTAL=$(cat /tmp/trivy-results.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          results = data.get('Results', [])
+          total = sum(len(r.get('Vulnerabilities', [])) for r in results)
+          os_count = sum(len(r.get('Vulnerabilities', [])) for r in results if r.get('Class') == 'os-pkgs')
+          app_count = sum(len(r.get('Vulnerabilities', [])) for r in results if r.get('Class') == 'lang-pkgs')
+          print(f'{total}|{os_count}|{app_count}')
+          " 2>/dev/null || echo "0|0|0")
+
+          IFS='|' read -r TOTAL OS_COUNT APP_COUNT <<< "$TOTAL"
+
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total CVEs** | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| OS-level (Debian) | $OS_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Application (Python) | $APP_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Agentic CVE Scanner will be triggered to analyze and fix these." >> $GITHUB_STEP_SUMMARY
+
+      # ── Upload artifacts ────────────────────────────────────
+      - name: Upload Trivy scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: /tmp/trivy-results.json
+          retention-days: 7
+
+      - name: Upload Docker image tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-tarball
+          path: /tmp/app-scan.tar
+          retention-days: 1
+
+      # ── Trigger the agentic CVE scanner ─────────────────────
+      - name: Trigger CVE Scanner agent
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🤖 Triggering agentic CVE Scanner workflow..."
+          gh workflow run cve-scanner.lock.yml \
+            --ref main
+          echo "✅ CVE Scanner triggered. The agent will download scan results and process them."
