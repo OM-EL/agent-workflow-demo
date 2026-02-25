@@ -1,0 +1,11 @@
+# Project dependencies
+# NOTE: Some packages are intentionally pinned to older versions
+# with known CVEs to test the security scanner workflow.
+
+requests==2.25.0
+urllib3==1.26.5
+flask==2.0.1
+jinja2==3.0.1
+werkzeug==2.0.1
+cryptography==3.4.7
+certifi==2021.5.30
