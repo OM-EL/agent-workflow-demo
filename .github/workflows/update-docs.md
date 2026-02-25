@@ -69,7 +69,27 @@ Read every file inside the `code-example/` folder and produce clear, accurate do
    - Keep descriptions concise and developer-friendly
    - Use code snippets where helpful to illustrate key parts
 
-4. **Create a draft PR** with the updated documentation
+4. **Generate algorithm schemas / diagrams**
+   - For every algorithm or data structure found in the code, create a **Mermaid diagram** that visually explains how it works.
+   - Add these diagrams directly inside `docs/code-examples.md`, in the section for the corresponding file.
+   - Types of diagrams to produce (pick the most appropriate for each algorithm):
+     - **Flowchart** (`flowchart TD`): for control flow (insert, search, delete operations)
+     - **Class diagram** (`classDiagram`): for data structure layout (node structure, class relationships)
+     - **State diagram** (`stateDiagram-v2`): for state transitions during operations
+     - **Sequence diagram** (`sequenceDiagram`): for step-by-step walkthrough of an algorithm on sample input
+   - Each algorithm should have **at least two diagrams**: one showing the data structure layout and one showing the step-by-step flow of a key operation.
+   - Wrap every diagram in a fenced code block with the `mermaid` language tag:
+     ````
+     ```mermaid
+     flowchart TD
+       A[Start] --> B{Check condition}
+       B -->|Yes| C[Do X]
+       B -->|No| D[Do Y]
+     ```
+     ````
+   - Include a brief caption above each diagram explaining what it illustrates.
+
+5. **Create a draft PR** with the updated documentation
 
 ### Rules
 
