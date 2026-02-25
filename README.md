@@ -117,6 +117,9 @@ The repository includes `.vscode/mcp.json` with pre-configured [MCP servers](htt
 | `io.github.github/github-mcp-server` | GitHub API access |
 | `io.github.upstash/context7` | Up-to-date library documentation |
 | `microsoft/playwright-mcp` | Browser automation |
+| `io.github.ChromeDevTools/chrome-devtools-mcp` | Chrome DevTools Protocol automation |
+| `oraios/serena` | IDE assistant for code navigation and analysis |
+| `io.github.netdata/mcp-server` | Infrastructure monitoring via Netdata Cloud |
 
 To use these, open the repository in VS Code with the GitHub Copilot extension and supply the required API keys when prompted.
 
