@@ -13,11 +13,11 @@
 			"type": "stdio",
 			"command": "npx",
 			"args": [
-				"@upstash/context7-mcp@1.0.31"
+				"-y",
+				"@upstash/context7-mcp@1.0.31",
+				"--api-key",
+				"${input:CONTEXT7_API_KEY}"
 			],
-			"env": {
-				"CONTEXT7_API_KEY": "${input:CONTEXT7_API_KEY}"
-			},
 			"gallery": "https://api.mcp.github.com",
 			"version": "1.0.31"
 		},
