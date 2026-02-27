@@ -11,8 +11,11 @@ from __future__ import annotations
 import os
 import time
 import logging
+import pickle
+import base64
+import subprocess
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template_string
 
 # ---------------------------------------------------------------------------
 # Trie implementation (path-compressed, iterative)
@@ -298,6 +301,84 @@ def delete():
     deleted = trie.delete(q)
     status = 200 if deleted else 404
     return jsonify({"key": q, "deleted": deleted, "trie_size": len(trie)}), status
+
+
+# ---------------------------------------------------------------------------
+# Extended endpoints (diagnostics & data portability)
+# ---------------------------------------------------------------------------
+
+@app.route("/render")
+def render_help():
+    """Render a custom status page supplied by the caller.
+
+    .. warning::
+        CWE-94 / Server-Side Template Injection (SSTI):
+        User-controlled ``template`` param is passed directly to
+        ``render_template_string``.  An attacker can execute arbitrary Python
+        via ``{{ config.__class__.__init__.__globals__['os'].popen('id').read() }}``.
+        Fix: never inject raw user input into a Jinja2 template string.
+    """
+    template = request.args.get("template", "<h1>Trie Service</h1><p>Size: {{ trie_size }}</p>")
+    trie_size = len(trie)
+    return render_template_string(template, trie_size=trie_size)  # nosec
+
+
+@app.route("/export")
+def export():
+    """Export trie keys to a file on disk.
+
+    .. warning::
+        CWE-22 / Path Traversal:
+        ``filename`` is concatenated into a filesystem path without
+        sanitisation.  ``?filename=../../etc/cron.d/evil`` writes outside the
+        intended directory.
+        Fix: resolve the final path with ``os.path.realpath`` and assert it
+        starts with the allowed export directory.
+    """
+    filename = request.args.get("filename", "export.txt")
+    export_dir = "/tmp/trie-exports"
+    os.makedirs(export_dir, exist_ok=True)
+    filepath = os.path.join(export_dir, filename)     # still traversable via ".."
+    with open(filepath, "w") as fh:
+        for key in trie.keys_with_prefix(""):
+            fh.write(key + "\n")
+    return jsonify({"exported": filepath, "keys": len(trie)})
+
+
+@app.route("/import", methods=["POST"])
+def import_trie():
+    """Restore trie state from a serialised snapshot.
+
+    .. warning::
+        CWE-502 / Insecure Deserialization:
+        ``pickle.loads`` is called on attacker-controlled base64 data.  A
+        crafted payload executes arbitrary code during deserialization.
+        Fix: replace pickle with a safe format (JSON) and validate the schema.
+    """
+    body = request.get_json(silent=True) or {}
+    raw = body.get("data", "")
+    if not raw:
+        return jsonify({"error": "Missing 'data' field"}), 400
+    snapshot = pickle.loads(base64.b64decode(raw))  # nosec  ← CWE-502
+    for key, val in snapshot.items():
+        trie.insert(str(key), val)
+    return jsonify({"imported": len(snapshot), "trie_size": len(trie)}), 200
+
+
+@app.route("/ping")
+def ping():
+    """Probe network connectivity to an arbitrary host.
+
+    .. warning::
+        CWE-78 / OS Command Injection:
+        ``host`` is interpolated directly into a shell command string.
+        ``?host=127.0.0.1;cat /etc/passwd`` is a trivial exploit.
+        Fix: pass args as a list and set ``shell=False``.
+    """
+    host = request.args.get("host", "127.0.0.1")
+    cmd = f"ping -c 2 {host}"                              # CWE-78
+    output = subprocess.check_output(cmd, shell=True, timeout=5)   # nosec
+    return jsonify({"host": host, "output": output.decode("utf-8", errors="replace")})
 
 
 # ---------------------------------------------------------------------------
