@@ -1,9 +1,0 @@
-.git
-.github
-.vscode
-__pycache__
-*.pyc
-*.pyo
-docs/
-*.md
-*.lock.yml
