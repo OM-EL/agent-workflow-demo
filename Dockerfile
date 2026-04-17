@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+# Apply OS-level security patches (addresses Debian package CVEs on image rebuild)
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 LABEL maintainer="OM-EL" \
       description="Trie Lookup Service — prefix-based autocomplete REST API" \
       version="1.0.0"
