@@ -1,5 +1,7 @@
 FROM python:3.12-slim
 
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 LABEL maintainer="OM-EL" \
       description="Trie Lookup Service — prefix-based autocomplete REST API" \
       version="1.0.0"
